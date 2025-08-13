@@ -1,1 +1,6 @@
 
+{
+  "data analyst": ["python", "sql", "excel", "data visualization", "pandas", "tableau", "statistics"],
+  "software engineer": ["python", "java", "c++", "algorithms", "data structures", "git", "rest api"],
+  "product manager": ["roadmap", "stakeholders", "user research", "prioritization", "okrs", "market research"]
+}
