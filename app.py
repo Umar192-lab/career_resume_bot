@@ -25,8 +25,8 @@ if mode == "Career Advice Chat":
 
 else:
     st.header("Resume Review & ATS Score")
-    st.write("Upload your resume as a text (.txt) or paste content. For best results paste plain text or copy from PDF/Word.")
-    uploaded = st.file_uploader("Upload resume (txt) or drag & drop", type=["txt"])
+    st.write("Upload your resume as PDF/DOCX/TXT or paste content.")
+    uploaded = st.file_uploader("Upload resume", type=["pdf", "docx", "txt"])
     pasted = st.text_area("Or paste your resume text here:", height=200)
     job_title = st.text_input("Target job title (e.g., Data Analyst):", value="Data Analyst")
 
@@ -54,4 +54,3 @@ else:
                 review = llm_resume_review(resume_text, job_title)
             st.subheader("LLM Review & Suggestions")
             st.write(review)
-
