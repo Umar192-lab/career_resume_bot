@@ -1,31 +1,45 @@
 # core/llm_connector.py
 """
-Calls local Ollama via subprocess to run the chosen model.
-Make sure ollama is installed and you've pulled the model:
-    ollama pull <model>
+Uses Ollama's HTTP API (fast) with a fallback to subprocess if HTTP isn't available.
+Run Ollama in the background:
+    ollama serve
+Pull a model first (e.g., mistral or gemma):
+    ollama pull mistral
 """
+
+import json
+import os
 import subprocess
-from config.config import OLLAMA_MODEL
-import shlex
+import requests
+from typing import Optional
 
-def ask_llm(prompt: str, timeout: int = 30) -> str:
-    """
-    Synchronous call to ollama: `ollama run <model> "<prompt>"`.
-    Returns the stdout text. In production you may want to run ollama
-    as a server and use its HTTP API for better performance.
-    """
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
+
+def ask_llm(prompt: str, timeout: int = 45) -> str:
+    # Try HTTP first
     try:
-        # Build a safe command
-        cmd = ["ollama", "run", OLLAMA_MODEL, prompt]
-        # run and capture output
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if completed.returncode != 0:
-            return f"[LLM ERROR] {completed.stderr.strip()}"
-        return completed.stdout.strip()
-    except FileNotFoundError:
-        return "Ollama not found. Install Ollama and pull a model first."
-    except subprocess.TimeoutExpired:
-        return "LLM call timed out."
-    except Exception as e:
-        return f"LLM call failed: {e}"
-
+        url = f"{OLLAMA_HOST}/api/generate"
+        payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+        resp = requests.post(url, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        # Ollama returns {"response": "...", "done": true, ...}
+        return (data.get("response") or "").strip() or "[Empty response from model]"
+    except Exception:
+        # Fallback to subprocess (works even if HTTP server isn't running)
+        try:
+            completed = subprocess.run(
+                ["ollama", "run", OLLAMA_MODEL, prompt],
+                capture_output=True, text=True, timeout=timeout
+            )
+            if completed.returncode != 0:
+                err = completed.stderr.strip() or "Unknown error"
+                return f"[LLM ERROR] {err}"
+            return completed.stdout.strip() or "[Empty response from model]"
+        except FileNotFoundError:
+            return "Ollama not found. Install from https://ollama.ai and pull a model."
+        except subprocess.TimeoutExpired:
+            return "LLM call timed out."
+        except Exception as e:
+            return f"LLM call failed: {e}"
