@@ -1,83 +1,115 @@
 # core/resume_processor.py
 import re
 import json
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Optional, IO
 from config.config import JOB_KEYWORDS_PATH, WEIGHTS
 from core.llm_connector import ask_llm
 
-# Load job keywords mapping (simple job title -> list of skills)
+# Optional heavy libs imported lazily inside functions
 try:
     with open(JOB_KEYWORDS_PATH, "r", encoding="utf-8") as f:
         JOB_KEYWORDS = json.load(f)
 except Exception:
     JOB_KEYWORDS = {}
 
-# ---- Text extraction helpers (Streamlit will pass bytes; here we expect plain text) ----
-def extract_text_from_uploaded(file) -> str:
-    """
-    file is a Streamlit uploaded file (BytesIO). We try a simple decode,
-    otherwise we extract text from common types if needed.
-    For robust extraction you can add pdfplumber / python-docx logic later.
-    """
-    data = file.read()
-    # Try UTF-8 decode fallback
+# -------- Text extraction --------
+def _extract_txt(file_obj: IO[bytes]) -> str:
+    data = file_obj.read()
     for enc in ("utf-8", "latin-1", "utf-16"):
         try:
-            text = data.decode(enc)
-            if len(text.strip()) > 10:
-                return text
+            t = data.decode(enc)
+            if len(t.strip()) > 10:
+                return t
         except Exception:
             pass
-    # As a last resort, return empty string
     return ""
 
-# ---- Heuristic checks ----
+def _extract_pdf(file_obj: IO[bytes]) -> str:
+    import io
+    import pdfplumber
+    text_parts = []
+    file_obj.seek(0)
+    with pdfplumber.open(io.BytesIO(file_obj.read())) as pdf:
+        for page in pdf.pages:
+            t = page.extract_text() or ""
+            if t:
+                text_parts.append(t)
+    return "\n".join(text_parts).strip()
+
+def _extract_docx(file_obj: IO[bytes]) -> str:
+    import io
+    from docx import Document
+    file_obj.seek(0)
+    doc = Document(io.BytesIO(file_obj.read()))
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    return "\n".join(parts).strip()
+
+def extract_text_from_uploaded(file) -> str:
+    """
+    Accepts a Streamlit UploadedFile (has .name and .read()).
+    Supports .txt, .pdf, .docx
+    """
+    name = (file.name or "").lower()
+    if name.endswith(".pdf"):
+        try:
+            return _extract_pdf(file)
+        except Exception:
+            file.seek(0)
+            return _extract_txt(file)
+    if name.endswith(".docx"):
+        try:
+            return _extract_docx(file)
+        except Exception:
+            file.seek(0)
+            return _extract_txt(file)
+    # default .txt or unknown — try plain text
+    return _extract_txt(file)
+
+# -------- Heuristic checks --------
 def has_contact_info(text: str) -> bool:
     email_re = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
-    phone_re = r"(\+?\d{7,15})"
+    phone_re = r"(\+?\d[\d\s\-]{6,15})"  # a bit more permissive
     return bool(re.search(email_re, text)) or bool(re.search(phone_re, text))
 
 def detect_section_headers(text: str) -> List[str]:
     headers = []
-    candidates = ["experience", "education", "skills", "projects", "summary", "certifications", "internship", "contact"]
+    candidates = [
+        "experience", "work experience", "education", "skills", "projects",
+        "summary", "objective", "certifications", "internship", "contact", "achievements"
+    ]
     lower = text.lower()
     for c in candidates:
         if c in lower:
             headers.append(c)
-    return headers
+    # de-duplicate while preserving order
+    seen = set()
+    uniq = []
+    for h in headers:
+        if h not in seen:
+            uniq.append(h); seen.add(h)
+    return uniq
 
 def estimate_formatting_score(text: str) -> float:
-    """
-    Basic heuristic for formatting: presence of bullet points or lines, and not a single dense paragraph.
-    Returns 0..1
-    """
     bullets = re.findall(r"(\n[-•*]\s+)", text)
-    lines = text.count("\n")
-    avg_line_len = (len(text) / max(1, lines))
+    lines = max(1, text.count("\n"))
+    avg_line_len = len(text) / lines
     score = 0.0
     if bullets:
         score += 0.6
-    if lines >= 6 and avg_line_len < 120:
+    if lines >= 8 and avg_line_len < 120:
         score += 0.4
     return min(1.0, score)
 
 def keywords_match_score(text: str, job_title: str) -> Tuple[float, List[str]]:
-    """
-    Score based on overlap between JOB_KEYWORDS[job_title] and resume text.
-    If job_title unknown, try fuzzy matching of keys or default empty list.
-    """
     jt = job_title.lower().strip()
-    # naive match: direct key or contains
     keywords = JOB_KEYWORDS.get(jt)
     if not keywords:
-        # try find a close match
+        # Try simple contains match on known roles
         for key in JOB_KEYWORDS.keys():
             if key in jt or jt in key:
                 keywords = JOB_KEYWORDS[key]
                 break
-    if not keywords:
-        keywords = []  # no keywords known
-
+    keywords = keywords or []
     text_lower = text.lower()
     matched = [kw for kw in keywords if kw.lower() in text_lower]
     score = len(matched) / max(1, len(keywords)) if keywords else 0.0
@@ -85,38 +117,34 @@ def keywords_match_score(text: str, job_title: str) -> Tuple[float, List[str]]:
 
 def length_ok_score(text: str) -> float:
     words = len(text.split())
-    # prefer 350-700 words for most resumes (1-2 pages)
     if 300 <= words <= 900:
         return 1.0
     if words < 300:
         return words / 300
-    # if too long, penalize slowly
     return max(0.0, 1.0 - (words - 900) / 2000)
 
-# ---- Combined ATS score ----
 def compute_ats_score(text: str, job_title: str) -> Dict:
     c_contact = 1.0 if has_contact_info(text) else 0.0
     headers = detect_section_headers(text)
-    c_headers = 1.0 if len(headers) >= 2 else len(headers) / 2.0
+    c_headers = 1.0 if len(headers) >= 3 else min(1.0, len(headers) / 3.0)
     c_len = length_ok_score(text)
     c_format = estimate_formatting_score(text)
     c_kw, matched = keywords_match_score(text, job_title)
 
-    weights = WEIGHTS
+    w = WEIGHTS
     score = (
-        weights["has_contact"] * c_contact +
-        weights["has_section_headers"] * c_headers +
-        weights["length_ok"] * c_len +
-        weights["formatting"] * c_format +
-        weights["keywords_match"] * c_kw
+        w["has_contact"] * c_contact +
+        w["has_section_headers"] * c_headers +
+        w["length_ok"] * c_len +
+        w["formatting"] * c_format +
+        w["keywords_match"] * c_kw
     )
-    # normalize to 0-100
     percent = round(max(0.0, min(1.0, score)) * 100, 1)
     return {
         "score_percent": percent,
         "components": {
-            "has_contact": c_contact,
-            "section_headers": c_headers,
+            "has_contact": round(c_contact, 3),
+            "section_headers": round(c_headers, 3),
             "length_ok": round(c_len, 3),
             "formatting": round(c_format, 3),
             "keywords_match": round(c_kw, 3)
@@ -125,17 +153,16 @@ def compute_ats_score(text: str, job_title: str) -> Dict:
         "detected_headers": headers
     }
 
-# ---- LLM-based review (adds qualitative suggestions) ----
 def llm_resume_review(text: str, job_title: str, max_tokens: int = 400) -> str:
     prompt = (
         f"You are an expert resume reviewer and career coach.\n"
-        f"Job title: {job_title}\n"
-        f"Resume text:\n{text[:4000]}\n\n"  # limit prompt size
+        f"Target job title: {job_title}\n"
+        f"Resume text (may be messy OCR):\n{text[:5000]}\n\n"
         "Provide:\n"
-        "1) Short ATS-style summary (2 lines).\n"
-        "2) Top 5 improvement suggestions prioritized.\n"
-        "3) Short rewritten professional summary (2-3 lines) the candidate can use.\n"
-        "Be concise and action-oriented."
+        "1) ATS-style summary (2 lines)\n"
+        "2) Top 5 prioritized fixes (clear bullets)\n"
+        "3) Skill gaps to address (tools/frameworks)\n"
+        "4) A 2-3 line rewritten professional summary\n"
+        "Be concise and actionable.\n"
     )
     return ask_llm(prompt)
-
