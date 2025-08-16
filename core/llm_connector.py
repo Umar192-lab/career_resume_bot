@@ -2,7 +2,7 @@ import os
 import ollama  # Make sure to install: pip install ollama
 
 # 🔧 Configuration (override via environment variables if needed)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma:2b")
 
 def ask_llm(prompt: str) -> str:
     """
