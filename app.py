@@ -1,5 +1,5 @@
 import streamlit as st
-from core.response_generator import get_career_advice
+from core.response_generator import get_response
 from core.resume_processor import (
     extract_text_from_uploaded,
     compute_ats_score,
@@ -31,7 +31,7 @@ if mode == "Career Advice Chat":
             st.warning("⚠️ Please enter a question before asking.")
         else:
             with st.spinner("🤔 Thinking..."):
-                resp = get_career_advice(user_q)
+                resp = get_response(user_q)
             st.subheader("💡 Advice")
             st.write(resp)
 

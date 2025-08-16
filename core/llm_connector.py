@@ -1,26 +1,27 @@
-# core/llm_connector.py
-"""
-Ollama LLM Connector
-- Uses Ollama's official Python SDK.
-- Default model: gemma:2b (change via OLLAMA_MODEL env var).
-"""
 import os
 import ollama  # Make sure to install: pip install ollama
 
 # 🔧 Configuration (override via environment variables if needed)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma:2b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
 
 def ask_llm(prompt: str) -> str:
     """
     Send a prompt to Ollama and return the response text.
+    Formats the response as bullet points and limits to less than 100 words.
     """
     if not prompt.strip():
         return "⚠️ Empty prompt."
 
+    # Add instruction for bullet points and word limit
+    formatted_prompt = (
+        f"{prompt}\n\n"
+        "Please answer using concise bullet points. Limit your response to less than 100 words."
+    )
+
     try:
         response = ollama.chat(
             model=OLLAMA_MODEL,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": formatted_prompt}],
         )
         return response["message"]["content"].strip()
     except Exception as e:
