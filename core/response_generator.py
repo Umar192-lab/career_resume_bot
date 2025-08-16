@@ -1,19 +1,26 @@
-# core/response_generator.py
 from core.llm_connector import ask_llm
 
-def career_advice_prompt(user_message: str, context: str = "") -> str:
+def get_career_advice(user_input: str) -> str:
     """
-    Build a context-rich prompt for career advice.
+    Generates structured career advice using the local LLM.
     """
-    prompt = (
-        "You are a friendly career advisor. Provide concise, actionable advice.\n\n"
-        f"Context: {context}\n"
-        f"User question: {user_message}\n\n"
-        "Give: 1) Short suggestion (1-2 lines). 2) Steps or resources (bullet points). 3) Suggested skill improvements.\n"
-    )
-    return prompt
+    if not user_input.strip():
+        return "⚠️ Please enter your career question or interests."
 
-def get_career_advice(user_message: str, context: str = "") -> str:
-    prompt = career_advice_prompt(user_message, context)
-    return ask_llm(prompt)
+    prompt = f"""
+You are an AI career guidance assistant. 
+The user has asked the following career-related question:
 
+{user_input}
+
+Please provide:
+1. A clear and helpful explanation.
+2. Practical next steps the user can take.
+3. Any relevant skills, tools, or resources they should explore.
+    """
+
+    try:
+        response = ask_llm(prompt)
+        return response.strip() if response else "⚠️ No response from LLM. Please try again."
+    except Exception as e:
+        return f"⚠️ Error while generating advice: {str(e)}"

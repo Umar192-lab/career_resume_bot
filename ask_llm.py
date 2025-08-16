@@ -1,9 +1,4 @@
-# core/llm_connector.py
-"""
-Ollama LLM Connector
-- Uses Ollama's official Python SDK.
-- Default model: gemma:2b (change via OLLAMA_MODEL env var).
-"""
+import time
 import os
 import ollama  # Make sure to install: pip install ollama
 
@@ -17,15 +12,17 @@ def ask_llm(prompt: str) -> str:
     if not prompt.strip():
         return "⚠️ Empty prompt."
 
+    start = time.time()
     try:
         response = ollama.chat(
             model=OLLAMA_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
+        elapsed = time.time() - start
+        print(f"⏱️ LLM response time: {elapsed:.2f} seconds")
         return response["message"]["content"].strip()
     except Exception as e:
         return f"⚠️ LLM request failed: {str(e)}"
-
 
 # ✅ Interactive test mode
 if __name__ == "__main__":
