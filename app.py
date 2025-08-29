@@ -1,4 +1,6 @@
 import streamlit as st
+import time
+
 from core.response_generator import get_response
 from core.resume_processor import (
     extract_text_from_uploaded,
@@ -8,47 +10,65 @@ from core.resume_processor import (
 from utils.text_utils import clean_text
 
 # ----------------- Streamlit Config -----------------
-st.set_page_config(page_title="Career & Resume Assistant", layout="centered")
-st.title("💼 Career & Resume Assistant (Powered by Local LLM)")
+st.set_page_config(page_title="Career & Resume Chatbot", layout="centered")
+st.title("💼 Career & Resume Chatbot (Powered by Local LLM)")
 
 # ----------------- Sidebar -----------------
-st.sidebar.header("Actions")
+st.sidebar.header("⚙️ Actions")
 mode = st.sidebar.radio("Choose Mode", ["Career Advice Chat", "Resume Review"])
 
 # ----------------- Career Advice Chat -----------------
 if mode == "Career Advice Chat":
     st.header("🧑‍💼 Career Advice Chat")
-    st.write("Ask career-related questions (job search, upskilling, interview prep, etc.).")
+    st.write("Chat with me about jobs, interviews, programming, or courses. 🚀")
 
-    user_q = st.text_area(
-        "Ask your question:",
-        height=120,
-        placeholder="E.g., What skills should I learn for a Data Analyst role?"
-    )
-    
-    if st.button("Get Advice"):
-        if not user_q.strip():
-            st.warning("⚠️ Please enter a question before asking.")
+    # Keep chat history in session state
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # Input box with ENTER submission (no button)
+    user_q = st.chat_input("Type your question here...")
+
+    if user_q:  # When user presses Enter
+        # Store user message
+        st.session_state.chat_history.append({"role": "user", "content": user_q})
+
+        # Get LLM response
+        with st.spinner("🤔 Thinking..."):
+            response_text = get_response(user_q)
+
+        # Typing effect simulation
+        typed_text = ""
+        placeholder = st.empty()
+        for word in response_text.split():
+            typed_text += word + " "
+            placeholder.markdown("💡 " + typed_text)
+            time.sleep(0.05)
+
+        # Store bot response
+        st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+
+    # Display full conversation history
+    for chat in st.session_state.chat_history:
+        if chat["role"] == "user":
+            st.chat_message("user").markdown(chat["content"])
         else:
-            with st.spinner("🤔 Thinking..."):
-                resp = get_response(user_q)
-            st.subheader("💡 Advice")
-            st.write(resp)
+            st.chat_message("assistant").markdown(chat["content"])
 
 # ----------------- Resume Review -----------------
 elif mode == "Resume Review":
     st.header("📄 Resume Review & ATS Score")
     st.write("Upload your resume or paste text below to get an ATS score and LLM feedback.")
 
-    uploaded = st.file_uploader("Upload your resume", type=["pdf", "docx", "txt"])
+    uploaded = st.file_uploader("📂 Upload your resume", type=["pdf", "docx", "txt"])
     pasted = st.text_area(
-        "Or paste resume text here:",
+        "📋 Or paste resume text here:",
         height=200,
         placeholder="Paste your resume content..."
     )
-    job_title = st.text_input("Target Job Title (e.g., Data Analyst):", value="Data Analyst")
+    job_title = st.text_input("🎯 Target Job Title:", value="Data Analyst")
 
-    if st.button("Analyze Resume"):
+    if st.button("🔍 Analyze Resume"):
         resume_text = ""
 
         # Extract from uploaded file
@@ -72,16 +92,20 @@ elif mode == "Resume Review":
 
             st.metric("ATS Score", f"{result['score_percent']}%")
             st.write("### 🔍 Breakdown")
-            st.json(result["components"])  # ✅ Display in structured JSON
+            st.json(result["components"])
 
             if result["matched_keywords"]:
                 st.write("✅ Matched Keywords:", ", ".join(result["matched_keywords"]))
             if result["detected_headers"]:
                 st.write("📝 Detected Headers:", ", ".join(result["detected_headers"]))
 
-            # Generate LLM review
-            with st.spinner("🤖 Generating detailed feedback with LLM..."):
+            # Generate LLM review with typing effect
+            with st.spinner("🤖 Generating detailed feedback..."):
                 review = llm_resume_review(resume_text, job_title)
 
-            st.subheader("📢 LLM Review & Suggestions")
-            st.write(review)
+            placeholder = st.empty()
+            typed_text = ""
+            for word in review.split():
+                typed_text += word + " "
+                placeholder.markdown("📢 " + typed_text)
+                time.sleep(0.05)

@@ -1,34 +1,39 @@
-from core.llm_connector import ask_llm
+# core/response_generator.py
+import os
+import ollama
+import time
 
-def get_response(user_input: str, mode: str = "career") -> str:
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma:2b")
+
+def ask_llm(prompt: str) -> str:
     """
-    Generates a response using the local LLM.
-    - mode = "career" → structured career advice
-    - mode = "general" → answers any type of question
-    Limits the response to 100 words.
+    Ask Ollama LLM with greeting handling + concise responses.
     """
-    if not user_input.strip():
-        return "⚠️ Please enter a question."
+    if not prompt.strip():
+        return "⚠️ Empty prompt."
 
-    if mode == "career":
-        prompt = f"""
-You are an AI career guidance assistant. 
-The user has asked the following career-related question:
+    # Greeting handling
+    greetings = {"hello", "hi", "hey", "hola", "namaste","bye","goodbye"}
+    if prompt.strip().lower() in greetings:
+        return prompt.strip().capitalize() + "!"
+    
 
-{user_input}
-
-Please provide:
-1. A clear and helpful explanation.
-2. Practical next steps the user can take.
-3. Any relevant skills, tools, or resources they should explore.
-
-Please answer in less than 100 words.
-        """
-    else:  # general mode
-        prompt = f"The user asked: {user_input}\n\nPlease give a clear, helpful answer in less than 100 words."
+    formatted_prompt = (
+        f"{prompt}\n\n"
+        "Please answer concisely in less than 100 words."
+    )
 
     try:
-        response = ask_llm(prompt)
-        return response.strip() if response else "⚠️ No response from LLM. Please try again."
+        response = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": formatted_prompt}],
+        )
+        return response["message"]["content"].strip()
     except Exception as e:
-        return f"⚠️ Error while generating advice: {str(e)}"
+        return f"⚠️ LLM request failed: {str(e)}"
+
+def get_response(user_input: str) -> str:
+    """
+    Public function for app.py to call.
+    """
+    return ask_llm(user_input)
