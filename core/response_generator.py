@@ -1,19 +1,39 @@
 # core/response_generator.py
-from core.llm_connector import ask_llm
+import os
+import ollama
+import time
 
-def career_advice_prompt(user_message: str, context: str = "") -> str:
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma:2b")
+
+def ask_llm(prompt: str) -> str:
     """
-    Build a context-rich prompt for career advice.
+    Ask Ollama LLM with greeting handling + concise responses.
     """
-    prompt = (
-        "You are a friendly career advisor. Provide concise, actionable advice.\n\n"
-        f"Context: {context}\n"
-        f"User question: {user_message}\n\n"
-        "Give: 1) Short suggestion (1-2 lines). 2) Steps or resources (bullet points). 3) Suggested skill improvements.\n"
+    if not prompt.strip():
+        return "⚠️ Empty prompt."
+
+    # Greeting handling
+    greetings = {"hello", "hi", "hey", "hola", "namaste","bye","goodbye"}
+    if prompt.strip().lower() in greetings:
+        return prompt.strip().capitalize() + "!"
+    
+
+    formatted_prompt = (
+        f"{prompt}\n\n"
+        "Please answer concisely in less than 100 words."
     )
-    return prompt
 
-def get_career_advice(user_message: str, context: str = "") -> str:
-    prompt = career_advice_prompt(user_message, context)
-    return ask_llm(prompt)
+    try:
+        response = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": formatted_prompt}],
+        )
+        return response["message"]["content"].strip()
+    except Exception as e:
+        return f"⚠️ LLM request failed: {str(e)}"
 
+def get_response(user_input: str) -> str:
+    """
+    Public function for app.py to call.
+    """
+    return ask_llm(user_input)
